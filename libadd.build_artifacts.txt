@@ -1,0 +1,9 @@
+[SHARED_LIB]
+libadd.dylib
+
+[HEADER]
+graal_isolate.h
+libadd.h
+graal_isolate_dynamic.h
+libadd_dynamic.h
+
