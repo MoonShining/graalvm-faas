@@ -1,22 +1,48 @@
 #include <stdio.h>
 #include <dlfcn.h>
 #include <stdlib.h>
-#include <gen_graal_isolate_dynamic.h>
+#include "gen_graal_isolate_dynamic.h"
+#include "faas.h"
 
-struct faas {
-    char *libpath;
-    void *lib;
-    graal_create_isolate_fn_t graal_create_isolate;
-    graal_tear_down_isolate_fn_t graal_tear_down_isolate;
-    graal_isolatethread_t *isolate_thread;
-};
-
-typedef struct faas faas_t;
-
-faas_t* faas_new(char* path){
+faas_t* faas_create(char* path){
     faas_t *f = (faas_t *)malloc(sizeof(faas_t));
     f->libpath = path;
+    f->isolate_thread = NULL;
+    f->graal_create_isolate = NULL;
+    f->graal_tear_down_isolate = NULL;
+    f->fn = NULL;
+    f->unmanaged_memory_free = NULL;
+    f->lib = NULL;
     return f;
+}
+
+int faas_destroy(faas_t *f){
+    if(f->libpath != NULL){
+        free(f->libpath);
+        f->libpath = NULL;
+    }
+    if(f->isolate_thread != NULL){
+    	f->graal_tear_down_isolate(f->isolate_thread);
+	    f->isolate_thread = NULL;
+    }
+    if(f->graal_create_isolate != NULL){
+	    f->graal_create_isolate = NULL;
+    }
+    if(f->graal_tear_down_isolate != NULL){
+	    f->graal_tear_down_isolate = NULL;
+    }
+    if(f->fn != NULL){
+	    f->fn = NULL;
+    }
+    if(f->unmanaged_memory_free != NULL){
+	    f->unmanaged_memory_free = NULL;
+    }
+    if(f->lib != NULL){
+    	dlclose(f->lib);
+        f->lib = NULL;
+    }
+    free(f);
+    return 0;
 }
 
 int faas_init(faas_t *f){
@@ -36,32 +62,22 @@ int faas_init(faas_t *f){
     if (ret != 0) {
         return -4;
     }
+    f->fn = dlsym(f->lib, "faas_entrypoint"); // impl in java native
+    if (f->fn == NULL) {
+	    return -5;
+    }
+    f->unmanaged_memory_free = dlsym(f->lib, "unmanaged_memory_free"); // must impl in java
+    if (f->unmanaged_memory_free == NULL) {
+	    return -6;
+    }
     return 0;
 }
 
-int faas_free(faas_t *f){
-    free(f->libpath);
-    f->graal_tear_down_isolate(f->isolate_thread);
-    dlclose(f->lib);
-    free(f);
-    return 0;
+// call native func
+int faas_fn(faas_t *f, char *in, int inlen, char **out, int *outlen) {
+    return f->fn(f->isolate_thread, in, inlen, out, outlen);
 }
 
-int faas_add(faas_t *f, int a, int b) {
-    int(*add)(graal_isolatethread_t*, int, int) = dlsym(f->lib, "add");
-    if (add == NULL) {
-        fprintf(stderr, "Could not find plugin_func: %s\n", dlerror());
-        exit(1);
-    }
-    int result = add(f->isolate_thread, a, b);
-    return result;
-}
-
-void faas_memory(faas_t *f, char *in, int inlen, char **out, int *outlen) {
-    void(*memory)(graal_isolatethread_t*, char*, int, char **, int*) = dlsym(f->lib, "memory");
-    if (memory == NULL) {
-        fprintf(stderr, "Could not find plugin_func: %s\n", dlerror());
-        exit(1);
-    }
-    memory(f->isolate_thread, in, inlen, out, outlen);
+void graalvm_unmanaged_memory_free(faas_t *f, char *in) {
+    f->unmanaged_memory_free(f->isolate_thread, in);
 }

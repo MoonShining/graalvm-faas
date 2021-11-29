@@ -1,12 +1,7 @@
-build:
-	javac com/lib/Add.java
-	native-image --shared -H:Name=libadd
-	CGO_ENABLE=1 go build -o hello hello.go
+buildlib:
+	cd java && javac com/graalvmfaas/GraalvmFaasBase.java && native-image --shared -H:Name=libgraalvmfaas
 
-clean:
-	rm -rf graal* 
-	rm -rf lib*
-	rm -rf com/lib/*.class
-	rm -rf hello
+cleanlib:
+	cd java && rm -rf `ls | grep -v libgraalvmfaas.dylib | grep -v com`
 
-.PHONY: buildlib build clean
+.PHONY: buildlib cleanlib
